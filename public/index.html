@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>cpulze OUTREACH</title>
+<style>
+  :root{ --bg:#F7F6F2; --panel:#fff; --border:#DEDBD1; --text:#2C2C2A; --mute:#6B6A63;
+    --teal:#0F6E56; --teal-fill:#E1F5EE; --coral:#993C1D; --coral-fill:#FAECE7;
+    --red:#A32D2D; --red-fill:#FCEBEB; --amber:#854F0B; --amber-fill:#FAEEDA; }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:-apple-system,sans-serif;background:var(--bg);color:var(--text)}
+  header{padding:16px 24px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center}
+  header h1{font-size:16px;margin:0}
+  .wrap{display:grid;grid-template-columns:260px 1fr;min-height:calc(100vh - 57px)}
+  .sidebar{border-right:1px solid var(--border);padding:16px;overflow-y:auto}
+  .sidebar h2{font-size:11px;text-transform:uppercase;color:var(--mute);margin:0 0 10px}
+  .add-form{display:flex;flex-direction:column;gap:6px;margin-bottom:16px}
+  input,textarea,select,button{font-family:inherit;font-size:13px;border-radius:6px;border:1px solid var(--border);padding:7px 9px;background:#fff;color:var(--text)}
+  button{cursor:pointer;background:var(--panel)}
+  button:hover{border-color:var(--teal)}
+  button.primary{background:var(--teal);color:#fff;border-color:var(--teal)}
+  .hotel-item{padding:8px 10px;border-radius:8px;cursor:pointer;margin-bottom:4px;font-size:13px}
+  .hotel-item:hover{background:var(--teal-fill)}
+  .hotel-item.active{background:var(--teal-fill);font-weight:600}
+  main{padding:20px 28px;overflow-y:auto}
+  .empty{color:var(--mute);text-align:center;padding:80px 0}
+  .section{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:18px;margin-bottom:16px}
+  .section h3{margin:0 0 4px;font-size:14px}
+  .hint{font-size:12px;color:var(--mute);margin:0 0 12px}
+  .engine-row{display:flex;gap:8px;margin-bottom:10px;align-items:center}
+  .engine-row .label{width:90px;font-size:12px;font-weight:600}
+  .status-dot{width:8px;height:8px;border-radius:50%;display:inline-block;margin-right:6px}
+  .status-dot.ok{background:var(--teal)} .status-dot.no{background:var(--border)}
+  table{width:100%;border-collapse:collapse;font-size:12px}
+  th,td{text-align:left;padding:6px 8px;border-bottom:1px solid var(--border);vertical-align:top}
+  .theme-grid{display:grid;grid-template-columns:140px repeat(3,1fr);gap:6px;align-items:start}
+  .theme-grid .head{font-size:11px;text-transform:uppercase;color:var(--mute);font-weight:600}
+  .theme-grid textarea{width:100%;min-height:60px;font-size:11px;resize:vertical}
+  .badge{display:inline-block;padding:2px 8px;border-radius:99px;font-size:11px;font-weight:600}
+  .badge.VERIFIED{background:var(--teal-fill);color:var(--teal)}
+  .badge.THEME_VERIFIED{background:var(--amber-fill);color:var(--amber)}
+  .badge.UNVERIFIABLE{background:var(--border);color:var(--mute)}
+  .badge.DISPROVEN_IN_SAMPLE{background:#FDEBD3;color:#B5590A}
+  .badge.FABRICATED{background:var(--red-fill);color:var(--red)}
+  .badge.CONTRADICTED{background:var(--coral-fill);color:var(--coral)}
+  #corpusFile{font-size:12px}
+  pre{white-space:pre-wrap;font-size:11px;background:var(--bg);padding:8px;border-radius:6px;max-height:150px;overflow-y:auto}
+  .collapsible{display:none;margin-top:8px}
+  .collapsible.open{display:block}
+  .corpus-detail-row{display:none}
+  .corpus-detail-row.open{display:table-row}
+  table thead th{background:var(--panel)}
+</style>
+</head>
+<body>
+<header><h1>cpulze verify</h1><span id="hotelCorpusCount" style="font-size:12px;color:#6B6A63"></span></header>
+<div class="wrap">
+  <div class="sidebar">
+    <h2>Hotels</h2>
+    <div class="add-form">
+      <input id="newName" placeholder="Hotel name">
+      <input id="newLocation" placeholder="Location">
+      <button class="primary" id="addHotelBtn">Add hotel</button>
+    </div>
+    <div id="hotelList"></div>
+  </div>
+  <main id="main"><div class="empty">Add or select a hotel to begin.</div></main>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>
