@@ -50,6 +50,19 @@
   .corpus-detail-row{display:none}
   .corpus-detail-row.open{display:table-row}
   table thead th{background:var(--panel)}
+
+  /* --- drag & drop upload zones --- */
+  .drop-zone{
+    border:2px dashed var(--border);
+    border-radius:8px;
+    padding:14px;
+    transition:background-color .15s, border-color .15s;
+  }
+  .drop-zone.dragover{
+    background:var(--teal-fill);
+    border-color:var(--teal);
+  }
+  .drop-zone .dz-hint{font-size:11px;color:var(--mute);margin:0 0 6px}
 </style>
 </head>
 <body>
