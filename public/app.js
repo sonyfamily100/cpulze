@@ -132,6 +132,42 @@ document.getElementById('addHotelBtn').onclick = async () => {
   activeId = h.id; renderSidebar(); renderMain();
 };
 
+// Generic drag-and-drop wiring for a file-upload block. zoneId is the
+// dashed-border container wrapping the input + button; fileInputId is the
+// <input type="file"> inside it; uploadBtnId is the button whose existing
+// onclick already reads fileInput.files[0] and performs the upload. Since
+// that button already knows how to read the input, dropping a file just
+// sets fileInput.files and clicks the button — no upload logic duplicated.
+function enableDropZone(zoneId, fileInputId, uploadBtnId) {
+  const zone = document.getElementById(zoneId);
+  const fileInput = document.getElementById(fileInputId);
+  const uploadBtn = document.getElementById(uploadBtnId);
+  if (!zone || !fileInput || !uploadBtn) return;
+
+  ['dragenter', 'dragover'].forEach(evt =>
+    zone.addEventListener(evt, e => {
+      e.preventDefault();
+      e.stopPropagation();
+      zone.classList.add('dragover');
+    })
+  );
+
+  ['dragleave', 'drop'].forEach(evt =>
+    zone.addEventListener(evt, e => {
+      e.preventDefault();
+      e.stopPropagation();
+      zone.classList.remove('dragover');
+    })
+  );
+
+  zone.addEventListener('drop', e => {
+    const files = e.dataTransfer.files;
+    if (!files.length) return;
+    fileInput.files = files;
+    uploadBtn.click();
+  });
+}
+
 async function renderMain() {
   const main = document.getElementById('main');
   if (!activeId) { main.innerHTML = '<div class="empty">Add or select a hotel to begin.</div>'; return; }
@@ -154,10 +190,13 @@ async function renderMain() {
       <h3>2. Corpus</h3>
       <p class="hint">Paste CSV text (url,reviewer,date,rating,title,text) or upload a file.</p>
       <textarea id="corpusPaste" placeholder="Paste CSV content here..." style="width:100%;min-height:80px;font-size:11px"></textarea>
-      <div style="margin-top:8px;display:flex;gap:8px;align-items:center">
-        <button id="corpusPasteBtn">Load pasted CSV</button>
-        <input type="file" id="corpusFile" accept=".csv">
-        <button id="corpusFileBtn">Upload file</button>
+      <div id="corpusDropZone" class="drop-zone" style="margin-top:8px">
+        <p class="dz-hint">Drag &amp; drop a CSV here, or use the buttons below</p>
+        <div style="display:flex;gap:8px;align-items:center">
+          <button id="corpusPasteBtn">Load pasted CSV</button>
+          <input type="file" id="corpusFile" accept=".csv">
+          <button id="corpusFileBtn">Upload file</button>
+        </div>
       </div>
       ${corpusDisplay(hotel.corpus)}
     </div>
@@ -172,10 +211,13 @@ async function renderMain() {
           <a href="/api/consumer-csv-template" download style="color:var(--teal)">Download blank template</a>
         </p>
         <textarea id="consumerCsvPaste" placeholder="Paste CSV content here..." style="width:100%;min-height:60px;font-size:11px"></textarea>
-        <div style="margin-top:8px;display:flex;gap:8px;align-items:center">
-          <button id="consumerCsvPasteBtn">Load pasted CSV</button>
-          <input type="file" id="consumerCsvFile" accept=".csv">
-          <button id="consumerCsvFileBtn">Upload file</button>
+        <div id="consumerCsvDropZone" class="drop-zone" style="margin-top:8px">
+          <p class="dz-hint">Drag &amp; drop a CSV here, or use the buttons below</p>
+          <div style="display:flex;gap:8px;align-items:center">
+            <button id="consumerCsvPasteBtn">Load pasted CSV</button>
+            <input type="file" id="consumerCsvFile" accept=".csv">
+            <button id="consumerCsvFileBtn">Upload file</button>
+          </div>
         </div>
         <div id="consumerCsvReport" style="margin-top:8px;font-size:12px"></div>
       </div>
@@ -279,6 +321,13 @@ async function renderMain() {
     const res = await fetch('/api/hotels/' + activeId + '/consumer-csv', { method: 'POST', body: fd });
     handleConsumerCsvResult(res);
   };
+
+  // Wire up drag-and-drop for both upload zones. Must be called here
+  // (inside renderMain) rather than once at page load, since main.innerHTML
+  // is rebuilt from scratch every render and would otherwise leave stale
+  // listeners attached to detached elements.
+  enableDropZone('corpusDropZone', 'corpusFile', 'corpusFileBtn');
+  enableDropZone('consumerCsvDropZone', 'consumerCsvFile', 'consumerCsvFileBtn');
 
   document.getElementById('verifyBtn').onclick = async () => {
     const box = document.getElementById('verifyResults');
