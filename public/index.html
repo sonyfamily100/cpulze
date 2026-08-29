@@ -19,9 +19,10 @@
   button{cursor:pointer;background:var(--panel)}
   button:hover{border-color:var(--teal)}
   button.primary{background:var(--teal);color:#fff;border-color:var(--teal)}
-  .hotel-item{padding:8px 10px;border-radius:8px;cursor:pointer;margin-bottom:4px;font-size:13px}
+  .hotel-item{padding:8px 10px;border-radius:8px;cursor:pointer;margin-bottom:4px;font-size:13px;display:flex;align-items:center;gap:8px}
   .hotel-item:hover{background:var(--teal-fill)}
   .hotel-item.active{background:var(--teal-fill);font-weight:600}
+  .hotel-item .hotel-name{flex:1;min-width:0}
   main{padding:20px 28px;overflow-y:auto}
   .empty{color:var(--mute);text-align:center;padding:80px 0}
   .section{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:18px;margin-bottom:16px}
@@ -63,6 +64,23 @@
     border-color:var(--teal);
   }
   .drop-zone .dz-hint{font-size:11px;color:var(--mute);margin:0 0 6px}
+
+  /* --- delete hotel button --- */
+  .delete-hotel-btn{
+    border:none;
+    background:transparent;
+    color:var(--mute);
+    font-size:16px;
+    line-height:1;
+    padding:2px 7px;
+    border-radius:6px;
+    cursor:pointer;
+    flex-shrink:0;
+  }
+  .delete-hotel-btn:hover{
+    background:var(--red-fill);
+    color:var(--red);
+  }
 </style>
 </head>
 <body>
