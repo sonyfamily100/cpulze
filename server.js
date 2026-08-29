@@ -29,6 +29,16 @@ app.get('/api/hotels', async (req, res) => {
     res.status(500).json({ error: e.message });
   }
 });
+app.delete('/api/hotels/:id', async (req, res) => {
+  try {
+    const hotel = await db.getHotel(req.params.id);
+    if (!hotel) return res.status(404).json({ error: 'not found' });
+    await db.deleteHotel(req.params.id);
+    res.json({ deleted: true, id: req.params.id });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
 
 app.post('/api/hotels', async (req, res) => {
   const { name, location } = req.body;
