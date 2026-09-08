@@ -120,7 +120,7 @@ function renderSidebar() {
 
     const delBtn = document.createElement('button');
     delBtn.className = 'delete-hotel-btn';
-    delBtn.textContent = '×';
+    delBtn.textContent = '-';
     delBtn.title = 'Delete ' + h.name;
     delBtn.onclick = (e) => {
       e.stopPropagation();
@@ -138,7 +138,7 @@ function renderSidebar() {
 // Confirms first since this is irreversible. If the active hotel is the one
 // being deleted, clears activeId so renderMain() falls back to the empty state.
 async function deleteHotel(id, name) {
-  const confirmed = confirm(`Delete "${name}"?\n\nThis permanently removes its corpus, API findings, consumer findings, verification history, and generated emails. This cannot be undone.`);
+  const confirmed = confirm(`Hide "${name}" from view?\n\nThis will remove it from the sidebar, but all data remains safely preserved in Supabase.`);
   if (!confirmed) return;
   try {
     await api('/api/hotels/' + id, { method: 'DELETE' });
@@ -146,7 +146,7 @@ async function deleteHotel(id, name) {
     await loadHotels();
     renderMain();
   } catch (e) {
-    alert('Failed to delete hotel: ' + e.message);
+    alert('Failed to hide hotel: ' + e.message);
   }
 }
 
