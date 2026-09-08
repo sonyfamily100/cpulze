@@ -206,6 +206,13 @@ async function renderMain() {
         </select>
       </div>
       <div id="emailHistoryViewer" style="margin-top:10px"></div>
+      <div style="display:${hotel.report_history.length ? 'flex' : 'none'};gap:8px;align-items:center;margin-top:16px;padding-top:14px;border-top:1px solid var(--border)">
+        <label style="font-size:12px;color:var(--mute)">Past reports:</label>
+        <select id="reportHistorySelect">
+          <option value="">— select a past report —</option>
+        </select>
+      </div>
+      <div id="reportHistoryViewer" style="margin-top:10px"></div>
     </div>
   `;
 
@@ -475,7 +482,9 @@ function renderVerification(result, box, runIndex, corpus, hotel) {
     ${findings.length ? `
       <div style="margin-top:16px">
         <button class="primary" id="generateEmailBtn" disabled>Generate Email (select findings above)</button>
+        <button class="primary" id="generateReportBtn" disabled>Generate Client Report (select findings above)</button>
         <div id="emailSelectionPreview" style="margin-top:10px"></div>
+        <div id="reportSelectionPreview" style="margin-top:10px"></div>
       </div>` : ''}
   `;
 
@@ -485,6 +494,7 @@ function renderVerification(result, box, runIndex, corpus, hotel) {
     .filter(tr => tr.style.display !== 'none')
     .map(tr => tr.querySelector('.finding-checkbox'));
   const genBtn = document.getElementById('generateEmailBtn');
+  const genReportBtn = document.getElementById('generateReportBtn');
   const countEl = document.getElementById('selectionCount');
 
   function updateSelectionState() {
@@ -494,6 +504,10 @@ function renderVerification(result, box, runIndex, corpus, hotel) {
     genBtn.textContent = selected.length === 0
       ? 'Generate Email (select findings above)'
       : `Generate Email (${selected.length} selected)`;
+    genReportBtn.disabled = selected.length === 0;
+    genReportBtn.textContent = selected.length === 0
+      ? 'Generate Client Report (select findings above)'
+      : `Generate Client Report (${selected.length} selected)`;
   }
 
   checkboxes().forEach(cb => cb.addEventListener('change', updateSelectionState));
@@ -569,6 +583,37 @@ function renderVerification(result, box, runIndex, corpus, hotel) {
       renderEmailResult(emailHistoryViewer, hotel.email_history[Number(idx)], 'hist' + idx);
     };
   }
+
+  genReportBtn.onclick = async () => {
+    const selectedIds = checkboxes().filter(cb => cb.checked).map(cb => Number(cb.dataset.findingId));
+    const preview = document.getElementById('reportSelectionPreview');
+    preview.innerHTML = 'Generating client report from ' + selectedIds.length + ' selected finding(s)...';
+    try {
+      const result = await fetch(`/api/hotels/${activeId}/generate-report`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ runIndex: window.__currentVerificationRunIndex, findingIds: selectedIds })
+      }).then(r => r.json());
+      if (result.error) {
+        preview.innerHTML = '<span style="color:var(--red)">' + escapeHtml(result.error) + '</span>';
+        return;
+      }
+      if (result.report && result.report.parse_error) {
+        preview.innerHTML = '<span style="color:var(--red)">Report generation returned unparseable output.</span><pre>' + escapeHtml(result.report.raw_text || '') + '</pre>';
+        return;
+      }
+      // Server already saved this to report_history — mirror that locally
+      // so the "Past reports" dropdown includes it without a full
+      // re-render (which would wipe this preview and the current selection).
+      hotel.report_history.push(result.report);
+      populateReportHistorySelect(hotel);
+      renderReportResult(preview, hotel.report_history.length - 1, hotel, 'new');
+    } catch (e) {
+      preview.innerHTML = '<span style="color:var(--red)">Request failed: ' + escapeHtml(e.message) + '</span>';
+    }
+  };
+
+  populateReportHistorySelect(hotel);
 }
 
 // Renders a generated-email result (subject/body/themes/reasoning, or an
@@ -609,6 +654,178 @@ function renderEmailResult(container, result, idSuffix) {
     const subject = document.getElementById(subjId).value;
     const body = document.getElementById(bodyId).value;
     navigator.clipboard.writeText(`Subject: ${subject}\n\n${body}`);
+  };
+}
+
+// Refreshes the "Past reports" dropdown and wires its onchange — a plain
+// top-level function (not nested in renderVerification) so renderReportResult
+// can call it back after a save/approve to refresh the dropdown's status
+// label without needing a full page re-render.
+function populateReportHistorySelect(hotel) {
+  const reportHistorySelect = document.getElementById('reportHistorySelect');
+  const reportHistoryViewer = document.getElementById('reportHistoryViewer');
+  if (!reportHistorySelect) return;
+  reportHistorySelect.parentElement.style.display = hotel.report_history.length ? 'flex' : 'none';
+  const reportOptions = hotel.report_history
+    .map((entry, i) => ({ i, label: `${entry.generated_at ? new Date(entry.generated_at).toLocaleString() : 'unknown time'} — ${(entry.status || 'draft').toUpperCase()}` }))
+    .reverse();
+  reportHistorySelect.innerHTML = '<option value="">— select a past report —</option>' +
+    reportOptions.map(o => `<option value="${o.i}">${escapeHtml(o.label)}</option>`).join('');
+  reportHistorySelect.value = '';
+  reportHistorySelect.onchange = () => {
+    const idx = reportHistorySelect.value;
+    if (idx === '') { reportHistoryViewer.innerHTML = ''; return; }
+    renderReportResult(reportHistoryViewer, Number(idx), hotel, 'hist' + idx);
+  };
+}
+
+// Renders one report (draft or approved) as an editable review form — every
+// text field an owner-facing report needs, plus Save/Approve/View/Download.
+// idSuffix keeps element ids unique when a fresh "new" preview and a "hist"
+// viewer are both on screen at once. hotel.report_history[reportIndex] is
+// kept as the source of truth; edits are read back from the DOM on save.
+function renderReportResult(container, reportIndex, hotel, idSuffix) {
+  const report = hotel.report_history[reportIndex];
+  if (!report) { container.innerHTML = ''; return; }
+
+  const statusClass = report.status === 'approved' ? 'approved' : 'draft';
+  const execId = `reportExec-${idSuffix}`;
+  const closingId = `reportClosing-${idSuffix}`;
+  const nextStepsId = `reportNextSteps-${idSuffix}`;
+
+  const themeCards = (report.theme_sections || []).map((s, ti) => `
+    <div class="report-theme-card">
+      <div style="font-weight:700;font-size:13px;margin-bottom:2px">${escapeHtml(s.theme)}</div>
+      <div style="font-size:12px;color:var(--mute);font-style:italic;margin-bottom:8px">"${escapeHtml(s.question_asked)}"</div>
+      <div class="report-engine-grid">
+        ${ENGINES.map(e => `
+          <div>
+            <label class="field-label">${e}</label>
+            <textarea id="reportTheme-${idSuffix}-${ti}-engine-${e}" style="width:100%;min-height:50px;font-size:12px">${escapeHtml((s.responses_by_engine || {})[e] || '')}</textarea>
+          </div>`).join('')}
+      </div>
+      <label class="field-label">Source context</label>
+      <textarea id="reportTheme-${idSuffix}-${ti}-source" style="width:100%;min-height:40px;font-size:12px">${escapeHtml(s.source_context || '')}</textarea>
+      <label class="field-label">Recommendation</label>
+      <textarea id="reportTheme-${idSuffix}-${ti}-rec" style="width:100%;min-height:40px;font-size:12px">${escapeHtml(s.recommendation || '')}</textarea>
+      <label class="field-label">What the owner can do</label>
+      <textarea id="reportTheme-${idSuffix}-${ti}-owner" style="width:100%;min-height:40px;font-size:12px">${escapeHtml(s.owner_actions || '')}</textarea>
+    </div>`).join('');
+
+  const pricingRows = (report.pricing || []).map((t, pi) => `
+    <div style="display:grid;grid-template-columns:1fr 100px 2fr;gap:8px;margin-bottom:6px">
+      <input id="reportPricing-${idSuffix}-${pi}-name" value="${escapeAttr(t.name || '')}">
+      <input id="reportPricing-${idSuffix}-${pi}-price" value="${escapeAttr(t.price || '')}">
+      <input id="reportPricing-${idSuffix}-${pi}-desc" value="${escapeAttr(t.description || '')}">
+    </div>`).join('');
+
+  container.innerHTML = `
+    <div style="border:1px solid var(--border);border-radius:8px;padding:14px">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+        <span class="report-status ${statusClass}">${report.status || 'draft'}</span>
+        <span style="font-size:11px;color:var(--mute)">
+          ${report.generated_at ? 'Generated ' + new Date(report.generated_at).toLocaleString() : ''}
+          ${report.approved_at ? ' · Approved ' + new Date(report.approved_at).toLocaleString() : ''}
+        </span>
+      </div>
+
+      <label class="field-label">Executive summary</label>
+      <textarea id="${execId}" style="width:100%;min-height:80px;font-size:13px">${escapeHtml(report.executive_summary || '')}</textarea>
+
+      <h4 style="font-size:12px;margin:16px 0 8px">Theme sections</h4>
+      ${themeCards || '<p class="hint">No theme sections.</p>'}
+
+      <label class="field-label">Closing note</label>
+      <textarea id="${closingId}" style="width:100%;min-height:50px;font-size:13px">${escapeHtml(report.closing_note || '')}</textarea>
+
+      <label class="field-label">Next steps</label>
+      <textarea id="${nextStepsId}" style="width:100%;min-height:50px;font-size:13px">${escapeHtml(report.next_steps || '')}</textarea>
+
+      <h4 style="font-size:12px;margin:16px 0 8px">Pricing (shared template — edit centrally in lib/reportTemplate.js, or override just this report below)</h4>
+      ${pricingRows}
+
+      <div style="margin-top:14px;display:flex;gap:8px;flex-wrap:wrap">
+        <button id="reportSaveBtn-${idSuffix}">Save draft</button>
+        <button class="primary" id="reportApproveBtn-${idSuffix}">${report.status === 'approved' ? 'Re-approve after edits' : 'Approve & sign off'}</button>
+        <button id="reportViewBtn-${idSuffix}">View client report</button>
+        <button id="reportDownloadBtn-${idSuffix}">Download HTML</button>
+      </div>
+      <div id="reportSaveStatus-${idSuffix}" style="margin-top:8px;font-size:12px"></div>
+    </div>`;
+
+  function collectEdits() {
+    const theme_sections = (report.theme_sections || []).map((s, ti) => {
+      const responses_by_engine = {};
+      ENGINES.forEach(e => {
+        const val = document.getElementById(`reportTheme-${idSuffix}-${ti}-engine-${e}`).value.trim();
+        if (val) responses_by_engine[e] = val;
+      });
+      return {
+        theme: s.theme,
+        question_asked: s.question_asked,
+        responses_by_engine,
+        source_context: document.getElementById(`reportTheme-${idSuffix}-${ti}-source`).value,
+        recommendation: document.getElementById(`reportTheme-${idSuffix}-${ti}-rec`).value,
+        owner_actions: document.getElementById(`reportTheme-${idSuffix}-${ti}-owner`).value
+      };
+    });
+    const pricing = (report.pricing || []).map((t, pi) => ({
+      name: document.getElementById(`reportPricing-${idSuffix}-${pi}-name`).value,
+      price: document.getElementById(`reportPricing-${idSuffix}-${pi}-price`).value,
+      description: document.getElementById(`reportPricing-${idSuffix}-${pi}-desc`).value
+    }));
+    return {
+      executive_summary: document.getElementById(execId).value,
+      theme_sections,
+      closing_note: document.getElementById(closingId).value,
+      next_steps: document.getElementById(nextStepsId).value,
+      pricing
+    };
+  }
+
+  const statusBox = document.getElementById(`reportSaveStatus-${idSuffix}`);
+
+  async function saveEdits() {
+    const body = collectEdits();
+    const updated = await api(`/api/hotels/${activeId}/reports/${reportIndex}`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+    hotel.report_history[reportIndex] = updated;
+    return updated;
+  }
+
+  document.getElementById(`reportSaveBtn-${idSuffix}`).onclick = async () => {
+    statusBox.textContent = 'Saving...';
+    try {
+      await saveEdits();
+      statusBox.textContent = 'Draft saved.';
+      renderReportResult(container, reportIndex, hotel, idSuffix);
+      populateReportHistorySelect(hotel);
+    } catch (e) {
+      statusBox.innerHTML = '<span style="color:var(--red)">Save failed: ' + escapeHtml(e.message) + '</span>';
+    }
+  };
+
+  document.getElementById(`reportApproveBtn-${idSuffix}`).onclick = async () => {
+    statusBox.textContent = 'Saving and approving...';
+    try {
+      await saveEdits();
+      const approved = await api(`/api/hotels/${activeId}/reports/${reportIndex}/approve`, { method: 'POST' });
+      hotel.report_history[reportIndex] = approved;
+      statusBox.textContent = 'Approved — ready to share with the client.';
+      renderReportResult(container, reportIndex, hotel, idSuffix);
+      populateReportHistorySelect(hotel);
+    } catch (e) {
+      statusBox.innerHTML = '<span style="color:var(--red)">Approve failed: ' + escapeHtml(e.message) + '</span>';
+    }
+  };
+
+  document.getElementById(`reportViewBtn-${idSuffix}`).onclick = () => {
+    window.open(`/api/hotels/${activeId}/reports/${reportIndex}/export`, '_blank');
+  };
+  document.getElementById(`reportDownloadBtn-${idSuffix}`).onclick = () => {
+    window.open(`/api/hotels/${activeId}/reports/${reportIndex}/export?download=1`, '_blank');
   };
 }
 

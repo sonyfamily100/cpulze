@@ -6,6 +6,8 @@ const db = require('./lib/db');
 const { runEngine } = require('./lib/engineCalls');
 const { runVerification, normalizeFinding } = require('./lib/verify');
 const { runEmailGeneration } = require('./lib/emailGen');
+const { runReportGeneration } = require('./lib/reportGen');
+const { renderReportHtml } = require('./lib/reportRender');
 const { THEMES: THEME_PAIRS, THEME_LABELS, matchThemeKey } = require('./lib/themes');
 
 const app = express();
@@ -252,5 +254,94 @@ app.post('/api/hotels/:id/generate-email', async (req, res) => {
     res.status(500).json({ error: e.message });
   }
 });
+// --- Client report generation (draft) ---
+// body: { runIndex, findingIds }
+app.post('/api/hotels/:id/generate-report', async (req, res) => {
+  try {
+    const hotel = await db.getHotel(req.params.id);
+    if (!hotel) return res.status(404).json({ error: 'not found' });
+
+    const { runIndex, findingIds } = req.body;
+    const run = hotel.verification_history[runIndex];
+    if (!run) return res.status(400).json({ error: 'invalid verification run index' });
+
+    const selectedFindings = (run.findings || []).filter(f => (findingIds || []).includes(f.id));
+    if (!selectedFindings.length) return res.status(400).json({ error: 'no matching findings for the given IDs' });
+
+    const report = await runReportGeneration(hotel, selectedFindings);
+    const now = new Date().toISOString();
+    const entry = { ...report, run_index: runIndex, finding_ids: findingIds, generated_at: now, updated_at: now };
+    hotel.report_history.push(entry);
+    await db.saveHotel(hotel);
+    res.json({ report: entry, index: hotel.report_history.length - 1 });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// --- Edit a report before sign-off ---
+// body: any of { executive_summary, theme_sections, closing_note, next_steps, pricing }
+app.put('/api/hotels/:id/reports/:reportIndex', async (req, res) => {
+  try {
+    const hotel = await db.getHotel(req.params.id);
+    if (!hotel) return res.status(404).json({ error: 'not found' });
+    const report = hotel.report_history[Number(req.params.reportIndex)];
+    if (!report) return res.status(404).json({ error: 'report not found' });
+
+    const editable = ['executive_summary', 'theme_sections', 'closing_note', 'next_steps', 'pricing'];
+    editable.forEach(key => {
+      if (req.body[key] !== undefined) report[key] = req.body[key];
+    });
+    // Editing an already-approved report reopens it for sign-off — an
+    // approval should only ever certify the content as it stood at the
+    // moment of approval, never content edited afterward.
+    if (report.status === 'approved') {
+      report.status = 'draft';
+      report.approved_at = null;
+    }
+    report.updated_at = new Date().toISOString();
+    await db.saveHotel(hotel);
+    res.json(report);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// --- Approve / sign off a report for client sharing ---
+app.post('/api/hotels/:id/reports/:reportIndex/approve', async (req, res) => {
+  try {
+    const hotel = await db.getHotel(req.params.id);
+    if (!hotel) return res.status(404).json({ error: 'not found' });
+    const report = hotel.report_history[Number(req.params.reportIndex)];
+    if (!report) return res.status(404).json({ error: 'report not found' });
+
+    report.status = 'approved';
+    report.approved_at = new Date().toISOString();
+    await db.saveHotel(hotel);
+    res.json(report);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// --- Client-safe standalone HTML export (view inline, or ?download=1) ---
+app.get('/api/hotels/:id/reports/:reportIndex/export', async (req, res) => {
+  try {
+    const hotel = await db.getHotel(req.params.id);
+    if (!hotel) return res.status(404).json({ error: 'not found' });
+    const report = hotel.report_history[Number(req.params.reportIndex)];
+    if (!report) return res.status(404).json({ error: 'report not found' });
+
+    const html = renderReportHtml(report);
+    res.setHeader('Content-Type', 'text/html');
+    if (req.query.download) {
+      res.setHeader('Content-Disposition', `attachment; filename="report_${hotel.name.replace(/[^a-z0-9]/gi, '_')}.html"`);
+    }
+    res.send(html);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`cpulze-verify running at http://localhost:${PORT}`));
