@@ -112,10 +112,42 @@ function renderSidebar() {
   hotels.forEach(h => {
     const div = document.createElement('div');
     div.className = 'hotel-item' + (h.id === activeId ? ' active' : '');
-    div.textContent = h.name;
-    div.onclick = () => { activeId = h.id; renderSidebar(); renderMain(); };
+
+    const nameSpan = document.createElement('span');
+    nameSpan.className = 'hotel-name';
+    nameSpan.textContent = h.name;
+    nameSpan.onclick = () => { activeId = h.id; renderSidebar(); renderMain(); };
+
+    const delBtn = document.createElement('button');
+    delBtn.className = 'delete-hotel-btn';
+    delBtn.textContent = '×';
+    delBtn.title = 'Delete ' + h.name;
+    delBtn.onclick = (e) => {
+      e.stopPropagation();
+      deleteHotel(h.id, h.name);
+    };
+
+    div.appendChild(nameSpan);
+    div.appendChild(delBtn);
     list.appendChild(div);
   });
+}
+
+// Deletes a hotel (and everything nested under it — corpus, api_findings,
+// consumer_findings, verification_history, email_history) via the server.
+// Confirms first since this is irreversible. If the active hotel is the one
+// being deleted, clears activeId so renderMain() falls back to the empty state.
+async function deleteHotel(id, name) {
+  const confirmed = confirm(`Delete "${name}"?\n\nThis permanently removes its corpus, API findings, consumer findings, verification history, and generated emails. This cannot be undone.`);
+  if (!confirmed) return;
+  try {
+    await api('/api/hotels/' + id, { method: 'DELETE' });
+    if (activeId === id) activeId = null;
+    await loadHotels();
+    renderMain();
+  } catch (e) {
+    alert('Failed to delete hotel: ' + e.message);
+  }
 }
 
 document.getElementById('addHotelBtn').onclick = async () => {
@@ -131,6 +163,42 @@ document.getElementById('addHotelBtn').onclick = async () => {
   await loadHotels();
   activeId = h.id; renderSidebar(); renderMain();
 };
+
+// Generic drag-and-drop wiring for a file-upload block. zoneId is the
+// dashed-border container wrapping the input + button; fileInputId is the
+// <input type="file"> inside it; uploadBtnId is the button whose existing
+// onclick already reads fileInput.files[0] and performs the upload. Since
+// that button already knows how to read the input, dropping a file just
+// sets fileInput.files and clicks the button — no upload logic duplicated.
+function enableDropZone(zoneId, fileInputId, uploadBtnId) {
+  const zone = document.getElementById(zoneId);
+  const fileInput = document.getElementById(fileInputId);
+  const uploadBtn = document.getElementById(uploadBtnId);
+  if (!zone || !fileInput || !uploadBtn) return;
+
+  ['dragenter', 'dragover'].forEach(evt =>
+    zone.addEventListener(evt, e => {
+      e.preventDefault();
+      e.stopPropagation();
+      zone.classList.add('dragover');
+    })
+  );
+
+  ['dragleave', 'drop'].forEach(evt =>
+    zone.addEventListener(evt, e => {
+      e.preventDefault();
+      e.stopPropagation();
+      zone.classList.remove('dragover');
+    })
+  );
+
+  zone.addEventListener('drop', e => {
+    const files = e.dataTransfer.files;
+    if (!files.length) return;
+    fileInput.files = files;
+    uploadBtn.click();
+  });
+}
 
 async function renderMain() {
   const main = document.getElementById('main');
@@ -154,10 +222,13 @@ async function renderMain() {
       <h3>2. Corpus</h3>
       <p class="hint">Paste CSV text (url,reviewer,date,rating,title,text) or upload a file.</p>
       <textarea id="corpusPaste" placeholder="Paste CSV content here..." style="width:100%;min-height:80px;font-size:11px"></textarea>
-      <div style="margin-top:8px;display:flex;gap:8px;align-items:center">
-        <button id="corpusPasteBtn">Load pasted CSV</button>
-        <input type="file" id="corpusFile" accept=".csv">
-        <button id="corpusFileBtn">Upload file</button>
+      <div id="corpusDropZone" class="drop-zone" style="margin-top:8px">
+        <p class="dz-hint">Drag &amp; drop a CSV here, or use the buttons below</p>
+        <div style="display:flex;gap:8px;align-items:center">
+          <button id="corpusPasteBtn">Load pasted CSV</button>
+          <input type="file" id="corpusFile" accept=".csv">
+          <button id="corpusFileBtn">Upload file</button>
+        </div>
       </div>
       ${corpusDisplay(hotel.corpus)}
     </div>
@@ -172,10 +243,13 @@ async function renderMain() {
           <a href="/api/consumer-csv-template" download style="color:var(--teal)">Download blank template</a>
         </p>
         <textarea id="consumerCsvPaste" placeholder="Paste CSV content here..." style="width:100%;min-height:60px;font-size:11px"></textarea>
-        <div style="margin-top:8px;display:flex;gap:8px;align-items:center">
-          <button id="consumerCsvPasteBtn">Load pasted CSV</button>
-          <input type="file" id="consumerCsvFile" accept=".csv">
-          <button id="consumerCsvFileBtn">Upload file</button>
+        <div id="consumerCsvDropZone" class="drop-zone" style="margin-top:8px">
+          <p class="dz-hint">Drag &amp; drop a CSV here, or use the buttons below</p>
+          <div style="display:flex;gap:8px;align-items:center">
+            <button id="consumerCsvPasteBtn">Load pasted CSV</button>
+            <input type="file" id="consumerCsvFile" accept=".csv">
+            <button id="consumerCsvFileBtn">Upload file</button>
+          </div>
         </div>
         <div id="consumerCsvReport" style="margin-top:8px;font-size:12px"></div>
       </div>
@@ -286,6 +360,13 @@ async function renderMain() {
     const res = await fetch('/api/hotels/' + activeId + '/consumer-csv', { method: 'POST', body: fd });
     handleConsumerCsvResult(res);
   };
+
+  // Wire up drag-and-drop for both upload zones. Must be called here
+  // (inside renderMain) rather than once at page load, since main.innerHTML
+  // is rebuilt from scratch every render and would otherwise leave stale
+  // listeners attached to detached elements.
+  enableDropZone('corpusDropZone', 'corpusFile', 'corpusFileBtn');
+  enableDropZone('consumerCsvDropZone', 'consumerCsvFile', 'consumerCsvFileBtn');
 
   document.getElementById('verifyBtn').onclick = async () => {
     const box = document.getElementById('verifyResults');
