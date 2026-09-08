@@ -31,12 +31,34 @@ app.get('/api/hotels', async (req, res) => {
     res.status(500).json({ error: e.message });
   }
 });
+// --- Hotels ---
+app.get('/api/hotels', async (req, res) => {
+  try {
+    res.json(await db.listHotels());
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Soft-deletes (hides) the hotel from the view instead of permanently deleting
 app.delete('/api/hotels/:id', async (req, res) => {
   try {
     const hotel = await db.getHotel(req.params.id);
     if (!hotel) return res.status(404).json({ error: 'not found' });
-    await db.deleteHotel(req.params.id);
-    res.json({ deleted: true, id: req.params.id });
+    await db.hideHotel(req.params.id);
+    res.json({ hidden: true, id: req.params.id });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Optional dedicated endpoint if you want explicit hide calls
+app.post('/api/hotels/:id/hide', async (req, res) => {
+  try {
+    const hotel = await db.getHotel(req.params.id);
+    if (!hotel) return res.status(404).json({ error: 'not found' });
+    await db.hideHotel(req.params.id);
+    res.json({ hidden: true, id: req.params.id });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
