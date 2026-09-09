@@ -94,6 +94,7 @@ function normalizeFindingDisplay(f) {
 
 let hotels = [];
 let activeId = null;
+let showHiddenHotels = false;
 
 async function api(path, opts) {
   const res = await fetch(path, opts);
@@ -102,43 +103,77 @@ async function api(path, opts) {
 }
 
 async function loadHotels() {
-  hotels = await api('/api/hotels');
+  hotels = await api(`/api/hotels?includeHidden=${showHiddenHotels}`);
   renderSidebar();
 }
 
 function renderSidebar() {
   const list = document.getElementById('hotelList');
   list.innerHTML = '';
+
+  // Toggle control to show or hide archived hotels
+  const toggleContainer = document.createElement('div');
+  toggleContainer.style.cssText = 'padding: 8px 10px; margin-bottom: 6px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--mute); user-select: none;';
+  
+  const toggleCheckbox = document.createElement('input');
+  toggleCheckbox.type = 'checkbox';
+  toggleCheckbox.id = 'showHiddenToggle';
+  toggleCheckbox.checked = showHiddenHotels;
+  toggleCheckbox.onchange = async () => {
+    showHiddenHotels = toggleCheckbox.checked;
+    await loadHotels();
+  };
+
+  const toggleLabel = document.createElement('label');
+  toggleLabel.htmlFor = 'showHiddenToggle';
+  toggleLabel.style.cursor = 'pointer';
+  toggleLabel.textContent = 'Show hidden hotels';
+
+  toggleContainer.appendChild(toggleCheckbox);
+  toggleContainer.appendChild(toggleLabel);
+  list.appendChild(toggleContainer);
+
   hotels.forEach(h => {
     const div = document.createElement('div');
     div.className = 'hotel-item' + (h.id === activeId ? ' active' : '');
+    if (h.hidden) {
+      div.style.opacity = '0.65';
+    }
 
     const nameSpan = document.createElement('span');
     nameSpan.className = 'hotel-name';
-    nameSpan.textContent = h.name;
+    nameSpan.textContent = h.name + (h.hidden ? ' (hidden)' : '');
     nameSpan.onclick = () => { activeId = h.id; renderSidebar(); renderMain(); };
 
-    const delBtn = document.createElement('button');
-    delBtn.className = 'delete-hotel-btn';
-    delBtn.textContent = '×';
-    delBtn.title = 'Delete ' + h.name;
-    delBtn.onclick = (e) => {
-      e.stopPropagation();
-      deleteHotel(h.id, h.name);
-    };
+    const actionBtn = document.createElement('button');
+    actionBtn.className = 'delete-hotel-btn';
+
+    if (h.hidden) {
+      actionBtn.textContent = '+';
+      actionBtn.title = 'Restore ' + h.name;
+      actionBtn.style.color = 'var(--teal, #10b981)';
+      actionBtn.onclick = (e) => {
+        e.stopPropagation();
+        unhideHotel(h.id, h.name);
+      };
+    } else {
+      actionBtn.textContent = '-';
+      actionBtn.title = 'Hide ' + h.name;
+      actionBtn.onclick = (e) => {
+        e.stopPropagation();
+        deleteHotel(h.id, h.name);
+      };
+    }
 
     div.appendChild(nameSpan);
-    div.appendChild(delBtn);
+    div.appendChild(actionBtn);
     list.appendChild(div);
   });
 }
 
-// Deletes a hotel (and everything nested under it — corpus, api_findings,
-// consumer_findings, verification_history, email_history) via the server.
-// Confirms first since this is irreversible. If the active hotel is the one
-// being deleted, clears activeId so renderMain() falls back to the empty state.
+// Hides a hotel from view while keeping its data intact in Supabase
 async function deleteHotel(id, name) {
-  const confirmed = confirm(`Delete "${name}"?\n\nThis permanently removes its corpus, API findings, consumer findings, verification history, and generated emails. This cannot be undone.`);
+  const confirmed = confirm(`Hide "${name}" from view?\n\nThis will remove it from the active sidebar list, but all data remains safely preserved in Supabase.`);
   if (!confirmed) return;
   try {
     await api('/api/hotels/' + id, { method: 'DELETE' });
@@ -146,7 +181,18 @@ async function deleteHotel(id, name) {
     await loadHotels();
     renderMain();
   } catch (e) {
-    alert('Failed to delete hotel: ' + e.message);
+    alert('Failed to hide hotel: ' + e.message);
+  }
+}
+
+// Restores an archived/hidden hotel back to the view
+async function unhideHotel(id, name) {
+  try {
+    await api('/api/hotels/' + id + '/unhide', { method: 'POST' });
+    await loadHotels();
+    renderMain();
+  } catch (e) {
+    alert('Failed to restore hotel: ' + e.message);
   }
 }
 
@@ -361,10 +407,7 @@ async function renderMain() {
     handleConsumerCsvResult(res);
   };
 
-  // Wire up drag-and-drop for both upload zones. Must be called here
-  // (inside renderMain) rather than once at page load, since main.innerHTML
-  // is rebuilt from scratch every render and would otherwise leave stale
-  // listeners attached to detached elements.
+  // Wire up drag-and-drop for both upload zones
   enableDropZone('corpusDropZone', 'corpusFile', 'corpusFileBtn');
   enableDropZone('consumerCsvDropZone', 'consumerCsvFile', 'consumerCsvFileBtn');
 
@@ -390,7 +433,6 @@ async function renderMain() {
       currentRunIndex = Number(historySelect.value);
       renderVerification(hotel.verification_history[currentRunIndex], document.getElementById('verifyResults'), currentRunIndex, hotel.corpus, hotel);
     };
-    // show latest by default
     renderVerification(hotel.verification_history[currentRunIndex], document.getElementById('verifyResults'), currentRunIndex, hotel.corpus, hotel);
   }
 
@@ -500,9 +542,6 @@ function renderVerification(result, box, runIndex, corpus, hotel) {
   const corpusById = {};
   corpus.forEach((r, i) => { corpusById[r.id || (i + 1)] = r; });
 
-  // Normalize older runs that only have the combined part_or_theme field,
-  // then canonicalize part (A/B/C or blank) and theme (standard label) for
-  // every finding regardless of source or when the run was generated.
   const findings = (result.findings || []).map(f => {
     const { part, theme } = extractPartTheme(f);
     return normalizeFindingDisplay({ ...f, part, theme, corpus_refs: f.corpus_refs || [] });
@@ -634,9 +673,6 @@ function renderVerification(result, box, runIndex, corpus, hotel) {
       }).then(r => r.json());
       renderEmailResult(preview, result, 'new');
       if (!result.error && !result.parse_error) {
-        // Server already saved this to email_history — mirror that locally
-        // so the "Past emails" dropdown includes it without a full re-render
-        // (which would wipe this preview and the current selection state).
         hotel.email_history.push(result);
         populateEmailHistorySelect();
       }
@@ -684,9 +720,6 @@ function renderVerification(result, box, runIndex, corpus, hotel) {
         preview.innerHTML = '<span style="color:var(--red)">Report generation returned unparseable output.</span><pre>' + escapeHtml(result.report.raw_text || '') + '</pre>';
         return;
       }
-      // Server already saved this to report_history — mirror that locally
-      // so the "Past reports" dropdown includes it without a full
-      // re-render (which would wipe this preview and the current selection).
       hotel.report_history.push(result.report);
       populateReportHistorySelect(hotel);
       renderReportResult(preview, hotel.report_history.length - 1, hotel, 'new');
@@ -698,11 +731,6 @@ function renderVerification(result, box, runIndex, corpus, hotel) {
   populateReportHistorySelect(hotel);
 }
 
-// Renders a generated-email result (subject/body/themes/reasoning, or an
-// error/parse-error state) into the given container. Shared by the
-// "Generate Email" flow and the "Past emails" history viewer so both stay
-// visually and behaviorally identical. idSuffix keeps element ids unique
-// when both a fresh preview and a history entry are on screen at once.
 function renderEmailResult(container, result, idSuffix) {
   if (!result) { container.innerHTML = ''; return; }
   if (result.error) {
@@ -739,10 +767,6 @@ function renderEmailResult(container, result, idSuffix) {
   };
 }
 
-// Refreshes the "Past reports" dropdown and wires its onchange — a plain
-// top-level function (not nested in renderVerification) so renderReportResult
-// can call it back after a save/approve to refresh the dropdown's status
-// label without needing a full page re-render.
 function populateReportHistorySelect(hotel) {
   const reportHistorySelect = document.getElementById('reportHistorySelect');
   const reportHistoryViewer = document.getElementById('reportHistoryViewer');
@@ -761,11 +785,6 @@ function populateReportHistorySelect(hotel) {
   };
 }
 
-// Renders one report (draft or approved) as an editable review form — every
-// text field an owner-facing report needs, plus Save/Approve/View/Download.
-// idSuffix keeps element ids unique when a fresh "new" preview and a "hist"
-// viewer are both on screen at once. hotel.report_history[reportIndex] is
-// kept as the source of truth; edits are read back from the DOM on save.
 function renderReportResult(container, reportIndex, hotel, idSuffix) {
   const report = hotel.report_history[reportIndex];
   if (!report) { container.innerHTML = ''; return; }

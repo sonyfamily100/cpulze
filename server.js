@@ -26,17 +26,44 @@ const matchTheme = matchThemeKey;
 // --- Hotels ---
 app.get('/api/hotels', async (req, res) => {
   try {
-    res.json(await db.listHotels());
+    const showHidden = req.query.includeHidden === 'true';
+    res.json(await db.listHotels(showHidden));
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
 });
+
+// Soft-deletes (hides) the hotel from the view instead of permanently deleting
 app.delete('/api/hotels/:id', async (req, res) => {
   try {
     const hotel = await db.getHotel(req.params.id);
     if (!hotel) return res.status(404).json({ error: 'not found' });
-    await db.deleteHotel(req.params.id);
-    res.json({ deleted: true, id: req.params.id });
+    await db.hideHotel(req.params.id);
+    res.json({ hidden: true, id: req.params.id });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Optional dedicated endpoint if you want explicit hide calls
+app.post('/api/hotels/:id/hide', async (req, res) => {
+  try {
+    const hotel = await db.getHotel(req.params.id);
+    if (!hotel) return res.status(404).json({ error: 'not found' });
+    await db.hideHotel(req.params.id);
+    res.json({ hidden: true, id: req.params.id });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Restore/unhide a previously hidden hotel
+app.post('/api/hotels/:id/unhide', async (req, res) => {
+  try {
+    const hotel = await db.getHotel(req.params.id);
+    if (!hotel) return res.status(404).json({ error: 'not found' });
+    await db.unhideHotel(req.params.id);
+    res.json({ restored: true, id: req.params.id });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -264,6 +291,7 @@ app.post('/api/hotels/:id/generate-email', async (req, res) => {
     res.status(500).json({ error: e.message });
   }
 });
+
 // --- Client report generation (draft) ---
 // body: { runIndex, findingIds }
 app.post('/api/hotels/:id/generate-report', async (req, res) => {
