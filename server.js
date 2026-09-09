@@ -278,7 +278,7 @@ app.post('/api/hotels/:id/generate-report', async (req, res) => {
     const selectedFindings = (run.findings || []).filter(f => (findingIds || []).includes(f.id));
     if (!selectedFindings.length) return res.status(400).json({ error: 'no matching findings for the given IDs' });
 
-    const report = await runReportGeneration(hotel, selectedFindings);
+    const report = await runReportGeneration(hotel, selectedFindings, run.findings);
     const now = new Date().toISOString();
     const entry = { ...report, run_index: runIndex, finding_ids: findingIds, generated_at: now, updated_at: now };
     hotel.report_history.push(entry);
@@ -298,7 +298,10 @@ app.put('/api/hotels/:id/reports/:reportIndex', async (req, res) => {
     const report = hotel.report_history[Number(req.params.reportIndex)];
     if (!report) return res.status(404).json({ error: 'report not found' });
 
-    const editable = ['executive_summary', 'theme_sections', 'closing_note', 'next_steps', 'pricing'];
+    // pricing/services/perception_map/calendly_url are not editable per-report
+    // by design — they're cpulze's real, centrally-defined offer (lib/reportTemplate.js)
+    // and the report's actual computed data, not draft content awaiting review.
+    const editable = ['executive_summary', 'theme_sections', 'closing_note', 'next_steps'];
     editable.forEach(key => {
       if (req.body[key] !== undefined) report[key] = req.body[key];
     });

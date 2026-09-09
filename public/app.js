@@ -564,6 +564,7 @@ function renderVerification(result, box, runIndex, corpus, hotel) {
       <div style="margin-top:16px">
         <button class="primary" id="generateEmailBtn" disabled>Generate Email (select findings above)</button>
         <button class="primary" id="generateReportBtn" disabled>Generate Client Report (select findings above)</button>
+        <p class="hint" style="margin:6px 0 0">For a punchy client report, pick a handful of your strongest or most concerning findings (3-6 themes) rather than everything — every selected theme becomes its own section.</p>
         <div id="emailSelectionPreview" style="margin-top:10px"></div>
         <div id="reportSelectionPreview" style="margin-top:10px"></div>
       </div>` : ''}
@@ -774,31 +775,67 @@ function renderReportResult(container, reportIndex, hotel, idSuffix) {
   const closingId = `reportClosing-${idSuffix}`;
   const nextStepsId = `reportNextSteps-${idSuffix}`;
 
-  const themeCards = (report.theme_sections || []).map((s, ti) => `
-    <div class="report-theme-card">
-      <div style="font-weight:700;font-size:13px;margin-bottom:2px">${escapeHtml(s.theme)}</div>
-      <div style="font-size:12px;color:var(--mute);font-style:italic;margin-bottom:8px">"${escapeHtml(s.question_asked)}"</div>
-      <div class="report-engine-grid">
-        ${ENGINES.map(e => `
-          <div>
-            <label class="field-label">${e}</label>
-            <textarea id="reportTheme-${idSuffix}-${ti}-engine-${e}" style="width:100%;min-height:50px;font-size:12px">${escapeHtml((s.responses_by_engine || {})[e] || '')}</textarea>
-          </div>`).join('')}
-      </div>
-      <label class="field-label">Source context</label>
-      <textarea id="reportTheme-${idSuffix}-${ti}-source" style="width:100%;min-height:40px;font-size:12px">${escapeHtml(s.source_context || '')}</textarea>
-      <label class="field-label">Recommendation</label>
-      <textarea id="reportTheme-${idSuffix}-${ti}-rec" style="width:100%;min-height:40px;font-size:12px">${escapeHtml(s.recommendation || '')}</textarea>
-      <label class="field-label">What the owner can do</label>
-      <textarea id="reportTheme-${idSuffix}-${ti}-owner" style="width:100%;min-height:40px;font-size:12px">${escapeHtml(s.owner_actions || '')}</textarea>
-    </div>`).join('');
+  const SEVERITY_OPTIONS = [['critical', 'Critical'], ['high', 'High'], ['watch', 'Watch']];
+  const ACTION_TYPE_LABELS = {
+    website: 'Website content', ota_listing: 'OTA listing content',
+    article_correction: 'Correct an outdated article', review_reply: 'Reply to a review',
+    owner_voice: 'Owner Voice entry'
+  };
+  const themeCards = (report.theme_sections || []).map((s, ti) => {
+    const quotesHtml = (s.quotes || []).map((q, qi) => `
+        <div style="margin-bottom:8px">
+          <label class="field-label">${escapeHtml(q.engine)} — <span style="text-transform:none;font-weight:400">${q.mode === 'verbatim' ? 'as collected, verbatim' : 'summarized from API response'}</span></label>
+          ${q.mode === 'verbatim' ? `
+          <label class="field-label" style="margin-top:4px">Summary shown by default (full text is behind "show more")</label>
+          <textarea id="reportTheme-${idSuffix}-${ti}-quote-${qi}-summary" style="width:100%;min-height:36px;font-size:12px">${escapeHtml(q.summary || '')}</textarea>
+          <label class="field-label" style="margin-top:4px">Full response (verbatim)</label>` : ''}
+          <textarea id="reportTheme-${idSuffix}-${ti}-quote-${qi}" style="width:100%;min-height:50px;font-size:12px;${q.mode === 'verbatim' ? 'font-family:monospace' : ''}">${escapeHtml(q.text || '')}</textarea>
+          <input type="hidden" id="reportTheme-${idSuffix}-${ti}-quote-${qi}-engine" value="${escapeAttr(q.engine)}">
+          <input type="hidden" id="reportTheme-${idSuffix}-${ti}-quote-${qi}-mode" value="${escapeAttr(q.mode)}">
+        </div>`).join('');
 
-  const pricingRows = (report.pricing || []).map((t, pi) => `
-    <div style="display:grid;grid-template-columns:1fr 100px 2fr;gap:8px;margin-bottom:6px">
-      <input id="reportPricing-${idSuffix}-${pi}-name" value="${escapeAttr(t.name || '')}">
-      <input id="reportPricing-${idSuffix}-${pi}-price" value="${escapeAttr(t.price || '')}">
-      <input id="reportPricing-${idSuffix}-${pi}-desc" value="${escapeAttr(t.description || '')}">
-    </div>`).join('');
+    const actionsHtml = (s.actions || []).map((a, ai) => `
+        <div style="border:1px solid var(--border);border-radius:6px;padding:8px 10px;margin-bottom:8px">
+          <label class="field-label">${escapeHtml(ACTION_TYPE_LABELS[a.type] || a.type)}</label>
+          <textarea id="reportTheme-${idSuffix}-${ti}-action-${ai}-content" style="width:100%;min-height:50px;font-size:12px">${escapeHtml(a.content || '')}</textarea>
+          ${(a.type === 'website' || a.type === 'review_reply') ? `
+          <label class="field-label">Keywords (comma-separated)</label>
+          <input id="reportTheme-${idSuffix}-${ti}-action-${ai}-keywords" style="width:100%;font-size:12px" value="${escapeAttr((a.keywords || []).join(', '))}">` : ''}
+          <input type="hidden" id="reportTheme-${idSuffix}-${ti}-action-${ai}-type" value="${escapeAttr(a.type)}">
+        </div>`).join('');
+
+    const source = s.source || { type: 'manual', url: '', label: '' };
+    return `
+    <div class="report-theme-card">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:2px">
+        <div style="font-weight:700;font-size:13px">${escapeHtml(s.theme)}</div>
+        <select id="reportTheme-${idSuffix}-${ti}-severity" style="font-size:11px;padding:2px 6px">
+          ${SEVERITY_OPTIONS.map(([v, label]) => `<option value="${v}" ${s.severity === v ? 'selected' : ''}>${label}</option>`).join('')}
+        </select>
+      </div>
+      <div style="font-size:12px;color:var(--mute);font-style:italic;margin-bottom:8px">"${escapeHtml(s.question_asked)}"</div>
+
+      <label class="field-label">Why this is likely happening (root cause)</label>
+      <textarea id="reportTheme-${idSuffix}-${ti}-rootcause" style="width:100%;min-height:40px;font-size:12px">${escapeHtml(s.root_cause || '')}</textarea>
+
+      <label class="field-label">Engine responses</label>
+      ${quotesHtml || '<p class="hint">No engine responses.</p>'}
+
+      <label class="field-label">Source link (resolved from corpus if available — edit or add one manually)</label>
+      <div style="display:flex;gap:6px">
+        <input id="reportTheme-${idSuffix}-${ti}-source-url" placeholder="https://..." style="flex:1;font-size:12px" value="${escapeAttr(source.url || '')}">
+        <input id="reportTheme-${idSuffix}-${ti}-source-label" placeholder="Label (e.g. reviewer, date, platform)" style="flex:1;font-size:12px" value="${escapeAttr(source.label || '')}">
+      </div>
+
+      <label class="field-label">Attribution (how confident we are)</label>
+      <textarea id="reportTheme-${idSuffix}-${ti}-attribution" style="width:100%;min-height:40px;font-size:12px">${escapeHtml(s.attribution || '')}</textarea>
+
+      <div style="margin-top:10px;padding-top:10px;border-top:1px dashed var(--border)">
+        <div style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--teal);margin-bottom:6px">Recommended next steps</div>
+        ${actionsHtml || '<p class="hint">No actions.</p>'}
+      </div>
+    </div>`;
+  }).join('');
 
   container.innerHTML = `
     <div style="border:1px solid var(--border);border-radius:8px;padding:14px">
@@ -822,8 +859,7 @@ function renderReportResult(container, reportIndex, hotel, idSuffix) {
       <label class="field-label">Next steps</label>
       <textarea id="${nextStepsId}" style="width:100%;min-height:50px;font-size:13px">${escapeHtml(report.next_steps || '')}</textarea>
 
-      <h4 style="font-size:12px;margin:16px 0 8px">Pricing (shared template — edit centrally in lib/reportTemplate.js, or override just this report below)</h4>
-      ${pricingRows}
+      <p class="hint" style="margin-top:10px">Pricing and the four cpulze services are pulled live from lib/reportTemplate.js and aren't editable per-report — update pricing centrally there.</p>
 
       <div style="margin-top:14px;display:flex;gap:8px;flex-wrap:wrap">
         <button id="reportSaveBtn-${idSuffix}">Save draft</button>
@@ -836,31 +872,45 @@ function renderReportResult(container, reportIndex, hotel, idSuffix) {
 
   function collectEdits() {
     const theme_sections = (report.theme_sections || []).map((s, ti) => {
-      const responses_by_engine = {};
-      ENGINES.forEach(e => {
-        const val = document.getElementById(`reportTheme-${idSuffix}-${ti}-engine-${e}`).value.trim();
-        if (val) responses_by_engine[e] = val;
+      const quotes = (s.quotes || []).map((q, qi) => {
+        const summaryEl = document.getElementById(`reportTheme-${idSuffix}-${ti}-quote-${qi}-summary`);
+        return {
+          engine: document.getElementById(`reportTheme-${idSuffix}-${ti}-quote-${qi}-engine`).value,
+          mode: document.getElementById(`reportTheme-${idSuffix}-${ti}-quote-${qi}-mode`).value,
+          text: document.getElementById(`reportTheme-${idSuffix}-${ti}-quote-${qi}`).value,
+          summary: summaryEl ? summaryEl.value : (q.summary || '')
+        };
+      });
+      const actions = (s.actions || []).map((a, ai) => {
+        const type = document.getElementById(`reportTheme-${idSuffix}-${ti}-action-${ai}-type`).value;
+        const keywordsInput = document.getElementById(`reportTheme-${idSuffix}-${ti}-action-${ai}-keywords`);
+        return {
+          type,
+          label: a.label,
+          content: document.getElementById(`reportTheme-${idSuffix}-${ti}-action-${ai}-content`).value,
+          keywords: keywordsInput ? keywordsInput.value.split(',').map(k => k.trim()).filter(Boolean) : (a.keywords || [])
+        };
       });
       return {
         theme: s.theme,
         question_asked: s.question_asked,
-        responses_by_engine,
-        source_context: document.getElementById(`reportTheme-${idSuffix}-${ti}-source`).value,
-        recommendation: document.getElementById(`reportTheme-${idSuffix}-${ti}-rec`).value,
-        owner_actions: document.getElementById(`reportTheme-${idSuffix}-${ti}-owner`).value
+        severity: document.getElementById(`reportTheme-${idSuffix}-${ti}-severity`).value,
+        root_cause: document.getElementById(`reportTheme-${idSuffix}-${ti}-rootcause`).value,
+        quotes,
+        source: {
+          type: document.getElementById(`reportTheme-${idSuffix}-${ti}-source-url`).value.trim() ? 'corpus' : 'manual',
+          url: document.getElementById(`reportTheme-${idSuffix}-${ti}-source-url`).value.trim(),
+          label: document.getElementById(`reportTheme-${idSuffix}-${ti}-source-label`).value.trim()
+        },
+        attribution: document.getElementById(`reportTheme-${idSuffix}-${ti}-attribution`).value,
+        actions
       };
     });
-    const pricing = (report.pricing || []).map((t, pi) => ({
-      name: document.getElementById(`reportPricing-${idSuffix}-${pi}-name`).value,
-      price: document.getElementById(`reportPricing-${idSuffix}-${pi}-price`).value,
-      description: document.getElementById(`reportPricing-${idSuffix}-${pi}-desc`).value
-    }));
     return {
       executive_summary: document.getElementById(execId).value,
       theme_sections,
       closing_note: document.getElementById(closingId).value,
-      next_steps: document.getElementById(nextStepsId).value,
-      pricing
+      next_steps: document.getElementById(nextStepsId).value
     };
   }
 
@@ -880,9 +930,14 @@ function renderReportResult(container, reportIndex, hotel, idSuffix) {
     statusBox.textContent = 'Saving...';
     try {
       await saveEdits();
-      statusBox.textContent = 'Draft saved.';
       renderReportResult(container, reportIndex, hotel, idSuffix);
       populateReportHistorySelect(hotel);
+      // renderReportResult just replaced the whole container (including a
+      // fresh, empty status box) — set the confirmation on that new node,
+      // not the one captured in this closure, or it's wiped before anyone
+      // sees it.
+      const freshStatusBox = document.getElementById(`reportSaveStatus-${idSuffix}`);
+      if (freshStatusBox) freshStatusBox.textContent = 'Draft saved.';
     } catch (e) {
       statusBox.innerHTML = '<span style="color:var(--red)">Save failed: ' + escapeHtml(e.message) + '</span>';
     }
@@ -894,9 +949,10 @@ function renderReportResult(container, reportIndex, hotel, idSuffix) {
       await saveEdits();
       const approved = await api(`/api/hotels/${activeId}/reports/${reportIndex}/approve`, { method: 'POST' });
       hotel.report_history[reportIndex] = approved;
-      statusBox.textContent = 'Approved — ready to share with the client.';
       renderReportResult(container, reportIndex, hotel, idSuffix);
       populateReportHistorySelect(hotel);
+      const freshStatusBox = document.getElementById(`reportSaveStatus-${idSuffix}`);
+      if (freshStatusBox) freshStatusBox.textContent = 'Approved — ready to share with the client.';
     } catch (e) {
       statusBox.innerHTML = '<span style="color:var(--red)">Approve failed: ' + escapeHtml(e.message) + '</span>';
     }
